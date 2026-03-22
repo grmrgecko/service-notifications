@@ -13,7 +13,7 @@ import (
 const (
 	serviceName        = "service-notifications"
 	serviceDescription = "Notifications for church services"
-	serviceVersion     = "0.2"
+	serviceVersion     = "0.2.1"
 )
 
 // App is the global application structure for communicating between servers and storing information.

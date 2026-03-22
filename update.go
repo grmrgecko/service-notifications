@@ -110,7 +110,8 @@ func UpdatePCData() {
 		// Get the plans for this service type.
 		allPlans, err := PCGetAll(fmt.Sprintf("/services/v2/service_types/%d/plans", serviceTypeID))
 		if err != nil {
-			log.Fatalln(err)
+			log.Println("Error getting plans for service type:", serviceTypeID, err)
+			continue
 		}
 		// For each plan, update data in database and pull other plan releated items for updates.
 		for _, data := range allPlans {
@@ -152,7 +153,8 @@ func UpdatePCData() {
 			// Get all times for this plan.
 			allPlanTimes, err := PCGetAll(fmt.Sprintf("/services/v2/service_types/%d/plans/%d/plan_times", serviceTypeID, planID))
 			if err != nil {
-				log.Fatalln(err)
+				log.Println("Error getting plan times for plan:", planID, err)
+				continue
 			}
 			// With each time, save it to the database.
 			for _, data := range allPlanTimes {
@@ -188,7 +190,8 @@ func UpdatePCData() {
 			// Get all members of the plan.
 			allTeamMembers, err := PCGetAll(fmt.Sprintf("/services/v2/service_types/%d/plans/%d/team_members", serviceTypeID, planID))
 			if err != nil {
-				log.Fatalln(err)
+				log.Println("Error getting team members for plan:", planID, err)
+				continue
 			}
 			// With each member, update the database.
 			for _, data := range allTeamMembers {
@@ -226,11 +229,13 @@ func UpdateSlackData() {
 	// Get all users from Slack.
 	users, err := app.slack.GetUsers()
 	if err != nil {
-		log.Fatalln(err)
+		log.Println("Error getting Slack users:", err)
+		return
 	}
 	// If no users returned, error as we should have some...
 	if len(users) == 0 {
-		log.Fatalln("No users found in Slack.")
+		log.Println("No users found in Slack.")
+		return
 	}
 	// With each user, update the database.
 	for _, user := range users {
@@ -354,7 +359,8 @@ func CreateSlackChannels() {
 	app.db.Where("time_type='service' AND starts_at > ? AND starts_at < ?", startDate, lastDate).Find(&planTimes)
 	// If no plan times matched, exit here.
 	if len(planTimes) == 0 {
-		log.Fatalln("No services found for this time frame.")
+		log.Println("No services found for this time frame.")
+		return
 	}
 
 	// With each plan time found, create a slack channel.
@@ -432,7 +438,8 @@ func CreateSlackChannels() {
 			log.Println("Creating channel:", channel.Name)
 			schan, err := app.slack.CreateConversation(channelInfo)
 			if err != nil {
-				log.Fatalln("Failed to create channel:", err)
+				log.Println("Failed to create channel:", err)
+				continue
 			}
 
 			// If topic is defined, set the topic and purpose.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"gorm.io/driver/mysql"
@@ -126,7 +127,21 @@ func (a *App) InitDB() {
 	}
 	// Depending on connection configuration, open the database.
 	if a.config.DB.Type == "sqlite3" {
-		a.db, err = gorm.Open(sqlite.Open(a.config.DB.Connection), dbConfig)
+		// Enable WAL journaling and a busy timeout. Without WAL, a single
+		// long-running writer (e.g. the channel-creation/sync routine, which
+		// interleaves slow Slack API calls with its writes) blocks all readers,
+		// causing "database is locked" on concurrent reads such as the
+		// send_message channel lookup. WAL lets reads proceed alongside the
+		// writer, and the busy timeout makes any remaining contention wait
+		// rather than fail immediately. Append as DSN pragmas, preserving any
+		// query string already present in the configured connection.
+		conn := a.config.DB.Connection
+		sep := "?"
+		if strings.Contains(conn, "?") {
+			sep = "&"
+		}
+		conn += sep + "_journal_mode=WAL&_busy_timeout=10000"
+		a.db, err = gorm.Open(sqlite.Open(conn), dbConfig)
 	} else if a.config.DB.Type == "mysql" {
 		a.db, err = gorm.Open(mysql.Open(a.config.DB.Connection), dbConfig)
 	} else if a.config.DB.Type == "postgres" {

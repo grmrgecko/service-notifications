@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/slack-go/slack"
+	"gorm.io/gorm"
 )
 
 // Commonly used strings.
@@ -98,13 +100,34 @@ func (s *HTTPServer) RegisterAPIRoutes(r *mux.Router) {
 		now := time.Now().UTC()
 		conversation := app.config.Slack.DefaultConversation
 
-		// Find plan times that are occuring right now.
+		// Find plan times that are occuring right now. A 60-minute buffer
+		// is applied past ends_at so services that run long still resolve
+		// to their event channel instead of falling back to the default.
+		// Order by starts_at DESC so the most recent active service wins
+		// when a later service's window overlaps an earlier service's buffer.
 		var planTime PlanTimes
-		app.db.Where("time_type='service' AND starts_at < ? AND ends_at > ?", now, now).First(&planTime)
+		err = app.db.Where("time_type='service' AND starts_at < ? AND ends_at > ?", now, now.Add(-60*time.Minute)).Order("starts_at DESC").First(&planTime).Error
+		// A "record not found" simply means no service is occuring right now, in
+		// which case we fall back to the default conversation. Any other error
+		// (e.g. "database is locked") must NOT be swallowed: treating it as "no
+		// service" would silently misroute the message to the default
+		// conversation instead of the event channel. Fail so the caller retries.
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Println("Error looking up plan time:", err)
+			s.APISendGeneralResp(w, APIERR, "Error looking up plan time")
+			return
+		}
 		if planTime.Plan != 0 {
 			// If plan found, check for the slack channel.
 			var channel SlackChannels
-			app.db.Where("pc_plan = ?", planTime.Plan).First(&channel)
+			err = app.db.Where("pc_plan = ?", planTime.Plan).First(&channel).Error
+			// As above, only "record not found" is a benign result here. On any
+			// other error we must not fall through to the default conversation.
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				log.Println("Error looking up slack channel:", err)
+				s.APISendGeneralResp(w, APIERR, "Error looking up slack channel")
+				return
+			}
 			if channel.ID != "" {
 				// If slack channel found, update the conversation to the channel ID.
 				conversation = channel.ID
